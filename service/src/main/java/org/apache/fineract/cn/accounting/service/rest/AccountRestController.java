@@ -46,6 +46,7 @@ import org.apache.fineract.cn.command.gateway.CommandGateway;
 import org.apache.fineract.cn.lang.DateRange;
 import org.apache.fineract.cn.lang.ServiceException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -66,6 +67,9 @@ public class AccountRestController {
   private final AccountService accountService;
   private final LedgerService ledgerService;
 
+  @Value("${config.txnMaxRetry}")
+  private Integer txnMaxRetry;
+
   @Autowired
   public AccountRestController(final CommandGateway commandGateway,
                                final AccountService accountService,
@@ -83,7 +87,7 @@ public class AccountRestController {
       consumes = {MediaType.APPLICATION_JSON_VALUE}
   )
   @ResponseBody
-  ResponseEntity<Void> createAccount(@RequestBody @Valid final Account account) {
+  ResponseEntity<Void> createAccount(@RequestBody @Valid final Account account) throws Throwable {
     if (this.accountService.findAccount(account.getIdentifier()).isPresent()) {
       throw ServiceException.conflict("Account {0} already exists.", account.getIdentifier());
     }
@@ -95,10 +99,24 @@ public class AccountRestController {
     }
 
     validateLedger(account);
-
+    int retryCount = 0;
+    Exception e = null;
+    do {
+      retryCount++;
+      System.out.println("*******Try transaction :  " + retryCount + " of " + txnMaxRetry);
+      try {
     this.commandGateway.process(new CreateAccountCommand(account));
 
     return ResponseEntity.accepted().build();
+      } catch (Exception ex) {
+        System.out.println(ex.getClass().getCanonicalName());
+        System.out.println(ex.getClass().getName());
+        System.out.println(ex.getMessage());
+        e=ex;
+      }
+    } while (retryCount < txnMaxRetry);
+    //throw the last exception
+    throw e;
   }
 
   @Permittable(value = AcceptedTokenType.TENANT, groupId = PermittableGroupIds.THOTH_ACCOUNT)

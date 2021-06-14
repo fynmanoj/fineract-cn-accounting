@@ -69,3 +69,6 @@ async:
 
 flyway:
   enabled: false
+
+config:
+  txnMaxRetry : 5
